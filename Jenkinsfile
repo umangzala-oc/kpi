@@ -50,7 +50,7 @@ pipeline {
                     npm install --quiet --legacy-peer-deps
                     npx webpack --config webpack/test.config.js
                     npx mocha-chrome test/tests.html \
-                        --chrome-flags="--no-sandbox --disable-gpu --disable-dev-shm-usage" \
+                        --chrome-flags="[\"--no-sandbox\",\"--disable-gpu\",\"--disable-dev-shm-usage\"]" \
                         --chrome-launcher.connectionPollInterval=5000
                 '''
             }
