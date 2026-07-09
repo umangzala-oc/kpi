@@ -40,6 +40,14 @@ INTEGER_APPEARANCE_SVGS =
   'vertical-slider-with-scale': '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 34" fill="none"><line x1="20" y1="3" x2="20" y2="31" stroke="#444" stroke-width="1.5"/><circle cx="20" cy="17" r="3.5" fill="#378ADD" stroke="#378ADD" stroke-width="1"/><line x1="26" y1="5" x2="29" y2="5" stroke="#444" stroke-width="1"/><line x1="26" y1="11" x2="29" y2="11" stroke="#444" stroke-width="1"/><line x1="26" y1="17" x2="29" y2="17" stroke="#444" stroke-width="1"/><line x1="26" y1="23" x2="29" y2="23" stroke="#444" stroke-width="1"/><line x1="26" y1="29" x2="29" y2="29" stroke="#444" stroke-width="1"/><text x="32" y="7" font-size="5" fill="#666" font-family="Arial, sans-serif">100</text><text x="32" y="13" font-size="5" fill="#666" font-family="Arial, sans-serif">75</text><text x="32" y="19" font-size="5" fill="#666" font-family="Arial, sans-serif">50</text><text x="32" y="25" font-size="5" fill="#666" font-family="Arial, sans-serif">25</text><text x="32" y="31" font-size="5" fill="#666" font-family="Arial, sans-serif">0</text></svg>'
   'custom': '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 34" fill="none"><path d="M12 8 Q6 8 6 14 L6 20 Q6 26 12 26" stroke="#444" stroke-width="1.5" fill="none" stroke-linecap="round"/><path d="M40 8 Q46 8 46 14 L46 20 Q46 26 40 26" stroke="#444" stroke-width="1.5" fill="none" stroke-linecap="round"/><text x="17" y="22" font-size="12" fill="#378ADD" font-family="Menlo, Consolas, monospace" font-weight="700">&lt;/&gt;</text></svg>'
 
+INTEGER_SLIDER_CARD_VALUES = [
+  'analog-scale horizontal'
+  'analog-scale horizontal no-ticks'
+  'analog-scale vertical'
+  'analog-scale vertical no-ticks'
+  'analog-scale vertical show-scale'
+]
+
 INTEGER_APPEARANCE_CARDS = [
   { value: '',                                  svgKey: 'number-input' }
   { value: 'analog-scale horizontal',           svgKey: 'horizontal-slider' }
@@ -1079,14 +1087,7 @@ module.exports = do ->
       return '' if not modelValue or modelValue is 'default'
       stripped = modelValue.replace(/\bw\d+\b/g, '').trim()
       return '' if stripped is ''
-      KNOWN_VALUES = [
-        'analog-scale vertical show-scale'
-        'analog-scale horizontal no-ticks'
-        'analog-scale vertical no-ticks'
-        'analog-scale horizontal'
-        'analog-scale vertical'
-      ]
-      for v in KNOWN_VALUES
+      for v in INTEGER_SLIDER_CARD_VALUES
         return v if stripped.indexOf(v) > -1
       'other'
 
@@ -1095,14 +1096,7 @@ module.exports = do ->
       cardValue = @_integerCardValueFromModel(modelValue)
       _currentCard = cardValue
 
-      SLIDER_CARD_VALUES = [
-        'analog-scale horizontal'
-        'analog-scale horizontal no-ticks'
-        'analog-scale vertical'
-        'analog-scale vertical no-ticks'
-        'analog-scale vertical show-scale'
-      ]
-      isSlider = (val) -> val in SLIDER_CARD_VALUES
+      isSlider = (val) -> val in INTEGER_SLIDER_CARD_VALUES
 
       CARD_LABELS =
         '': t('Number input')
@@ -1158,10 +1152,12 @@ module.exports = do ->
         ['end',   t('End'),   _end]
         ['step',  t('Step'),  _step]
       ]
+        inputId = "integer-slider-range-#{@model.cid}-#{param}"
         $f = $('<div class="integer-slider-range-ctrl__field"></div>')
-        $f.append $('<label></label>').text(label)
+        $f.append $('<label></label>').attr('for', inputId).text(label)
         $inp = $('<input />', {
           type: 'number'
+          id: inputId
           class: 'integer-slider-range-ctrl__input'
           'data-param': param
           value: initVal
@@ -1172,11 +1168,17 @@ module.exports = do ->
       if not isSlider(cardValue)
         $rangeControl.hide()
 
+      RANGE_DEFAULTS = {start: '0', end: '100', step: '1'}
+
       # Range input changes — write to model + refresh pill (AC2, AC5)
       $rangeControl.on 'input change', '.integer-slider-range-ctrl__input', (evt) =>
-        $inp = $(evt.currentTarget)
-        val  = $inp.val().trim()
-        switch $inp.attr('data-param')
+        $inp  = $(evt.currentTarget)
+        param = $inp.attr('data-param')
+        val   = $inp.val().trim()
+        if val is ''
+          val = RANGE_DEFAULTS[param]
+          $inp.val(val)
+        switch param
           when 'start' then _start = val
           when 'end'   then _end   = val
           when 'step'  then _step  = val
@@ -1233,6 +1235,10 @@ module.exports = do ->
             refreshPill()
 
       $content.append($grid).append($rangeControl).append($customInput)
+
+      # Persist defaults when a slider is already selected but params were never saved
+      if isSlider(cardValue) and not (existingParams.start? and existingParams.end? and existingParams.step?)
+        writeRangeToModel()
 
       # Initial pill text
       refreshPill()
