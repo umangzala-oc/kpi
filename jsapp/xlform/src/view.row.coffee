@@ -1093,6 +1093,16 @@ module.exports = do ->
     _buildIntegerAppearanceSection: (appearanceModel) ->
       modelValue = (appearanceModel?.get('value') or '').trim()
       cardValue = @_integerCardValueFromModel(modelValue)
+      _currentCard = cardValue
+
+      SLIDER_CARD_VALUES = [
+        'analog-scale horizontal'
+        'analog-scale horizontal no-ticks'
+        'analog-scale vertical'
+        'analog-scale vertical no-ticks'
+        'analog-scale vertical show-scale'
+      ]
+      isSlider = (val) -> val in SLIDER_CARD_VALUES
 
       CARD_LABELS =
         '': t('Number input')
@@ -1106,7 +1116,72 @@ module.exports = do ->
       @appearanceSection.removeClass('appearance-section--hidden')
 
       $content = @appearanceSection.find('.js-appearance-card-content')
-      $grid = $('<div class="integer-appearance-card-grid"></div>')
+      $pill    = @appearanceSection.find('.js-appearance-pill')
+      $grid    = $('<div class="integer-appearance-card-grid"></div>')
+
+      # Read existing range params (AC4: populate inputs from model on load)
+      existingParams = @model.getParameters() or {}
+      _start = if existingParams.start? then "#{existingParams.start}" else '0'
+      _end   = if existingParams.end?   then "#{existingParams.end}"   else '100'
+      _step  = if existingParams.step?  then "#{existingParams.step}"  else '1'
+
+      # Pill text — includes range when a slider is selected (AC5)
+      refreshPill = ->
+        label = CARD_LABELS[_currentCard] or CARD_LABELS['']
+        text  = if isSlider(_currentCard) then "#{label} · #{_start}–#{_end}" else label
+        $pill.text(text)
+
+      # Write start/end/step to model parameters
+      writeRangeToModel = =>
+        params = @model.getParameters() or {}
+        params.start = _start
+        params.end   = _end
+        params.step  = _step
+        @model.setParameters(params)
+        @model.getSurvey().trigger('change')
+
+      # Remove start/end/step from model parameters
+      clearRangeFromModel = =>
+        params = @model.getParameters() or {}
+        delete params.start
+        delete params.end
+        delete params.step
+        @model.setParameters(params)
+        @model.getSurvey().trigger('change')
+
+      # Build slider range secondary control (AC1, AC2)
+      $rangeControl = $('<div class="integer-slider-range-ctrl"></div>')
+      $rangeControl.append $('<div class="integer-slider-range-ctrl__label"></div>').text(t('Slider range'))
+      $fields = $('<div class="integer-slider-range-ctrl__fields"></div>')
+      for [param, label, initVal] in [
+        ['start', t('Start'), _start]
+        ['end',   t('End'),   _end]
+        ['step',  t('Step'),  _step]
+      ]
+        $f = $('<div class="integer-slider-range-ctrl__field"></div>')
+        $f.append $('<label></label>').text(label)
+        $inp = $('<input />', {
+          type: 'number'
+          class: 'integer-slider-range-ctrl__input'
+          'data-param': param
+          value: initVal
+        })
+        $f.append($inp)
+        $fields.append($f)
+      $rangeControl.append($fields)
+      if not isSlider(cardValue)
+        $rangeControl.hide()
+
+      # Range input changes — write to model + refresh pill (AC2, AC5)
+      $rangeControl.on 'input change', '.integer-slider-range-ctrl__input', (evt) =>
+        $inp = $(evt.currentTarget)
+        val  = $inp.val().trim()
+        switch $inp.attr('data-param')
+          when 'start' then _start = val
+          when 'end'   then _end   = val
+          when 'step'  then _step  = val
+        writeRangeToModel()
+        refreshPill()
 
       $customInput = $('<input type="text" class="integer-appearance-custom-input" />')
       $customInput.attr('placeholder', t('Enter appearance value'))
@@ -1130,11 +1205,13 @@ module.exports = do ->
           $grid.append($card)
 
           $card.on 'click', =>
+            _currentCard = card.value
             $grid.find('.integer-appearance-card').removeClass('integer-appearance-card--selected')
             $card.addClass('integer-appearance-card--selected')
-            @appearanceSection.find('.js-appearance-pill').text(CARD_LABELS[card.value] or CARD_LABELS[''])
             if card.value is 'other'
               $customInput.show()
+              $rangeControl.hide()
+              clearRangeFromModel()
               customVal = $customInput.val().trim()
               appearanceModel.set('value', if customVal then customVal else 'other')
             else
@@ -1147,10 +1224,18 @@ module.exports = do ->
                   break
               newVal = if card.value and widthPart then "#{card.value} #{widthPart}" else card.value or widthPart or ''
               appearanceModel.set('value', newVal)
+              if isSlider(card.value)
+                $rangeControl.show()
+                writeRangeToModel()
+              else
+                $rangeControl.hide()
+                clearRangeFromModel()
+            refreshPill()
 
-      $content.append($grid).append($customInput)
+      $content.append($grid).append($rangeControl).append($customInput)
 
-      @appearanceSection.find('.js-appearance-pill').text(CARD_LABELS[cardValue] or CARD_LABELS[''])
+      # Initial pill text
+      refreshPill()
 
       $customInput.on 'input blur change', =>
         if $customInput.is(':visible')
