@@ -1047,6 +1047,47 @@ module.exports = do ->
       select_multiple: select_multiple
     cardsByType[questionType] or select_one
 
+  WIDTH_OPTIONS = ("w#{n}" for n in [1..10])
+
+  getWidthFromModelValue = (modelValue) ->
+    return null unless modelValue?
+    found = null
+    for w in WIDTH_OPTIONS
+      found = w if new RegExp("\\b#{w}\\b").test(modelValue)
+    found
+
+  getParentGroupCols = (mixin) ->
+    parent_group = mixin.model_get_parent_group()
+    return 4 unless parent_group?
+    appearanceDetail = parent_group.get('appearance')
+    return 4 unless appearanceDetail?
+    appearance = (appearanceDetail.getValue() or '').trim()
+    return 4 unless appearance
+    w = getWidthFromModelValue(appearance)
+    return 4 unless w?
+    n = parseInt(w.slice(1), 10)
+    if 1 <= n <= 10 then n else 4
+
+  getParentGroupName = (mixin) ->
+    parent_group = mixin.model_get_parent_group()
+    return null unless parent_group?
+    itemgroupDetail = parent_group.get('bind::oc:itemgroup')
+    nameDetail = parent_group.get('name')
+    (itemgroupDetail?.getValue() or nameDetail?.getValue() or null)
+
+  buildWidthPillText = (widthVal, groupCols) ->
+    return t('Full width') unless widthVal?
+    k = parseInt(widthVal.slice(1), 10)
+    if groupCols is 4
+      switch k
+        when 4 then t('Full width')
+        when 3 then t('3/4 width')
+        when 2 then t('Half width')
+        when 1 then t('1/4 width')
+        else "w#{k}"
+    else
+      "#{k} of #{groupCols}"
+
   viewRowDetail.DetailViewMixins.appearance =
     isCardGridType: ->
       @model_type() in ['select_one', 'select_multiple', 'date', 'note', 'file', 'text', 'audio', 'video', 'group']
@@ -1132,12 +1173,7 @@ module.exports = do ->
       @is_form_style('theme-grid')
 
     get_width_from_model_value: ->
-      modelValue = @model.get 'value'
-      return null unless modelValue?
-      model_width = null
-      for width_option in @width_options
-        model_width = width_option if ((modelValue.indexOf width_option) > -1)
-      model_width
+      getWidthFromModelValue(@model.get('value'))
 
     afterRender: ->
       if @isCardGridType()
@@ -1182,18 +1218,6 @@ module.exports = do ->
       # Render secondary control for initial state
       @_renderSecondaryControl(questionType)
 
-      # Width select (theme-grid form style only — not applicable to group)
-      if @is_form_style_theme_grid() and questionType isnt 'group'
-        $width_field = $("""<div class="card__settings__fields__field xlf-dv-width-row">
-          <label for="select-width">#{t('Width')}:</label>
-          <span class="settings__input"></span>
-        </div>""")
-        $width_field.find('.settings__input').append(@$select_width)
-        @$el.append($width_field)
-        width_val = @get_width_from_model_value()
-        @$select_width.val(width_val) if width_val?
-        @$select_width.on 'change', => @_writeModelValue()
-
       # Card click/keyboard — namespace so re-renders don't stack handlers
       selectCard = (el) =>
         slug = $(el).data('card-slug')
@@ -1208,6 +1232,9 @@ module.exports = do ->
         selectCard(evt.currentTarget)
       @$el.off('keydown.oc-appearance').on 'keydown.oc-appearance', '.appearance-card', (evt) =>
         selectCard(evt.currentTarget) if evt.key in ['Enter', ' ']
+
+      # Item width section
+      @_afterRenderWidth()
 
       # Initial pill (section starts collapsed)
       @_refreshPill($pill)
@@ -1291,7 +1318,7 @@ module.exports = do ->
 
     _writeModelValue: ->
       value = buildModelValue(@_card, @_columnCount, @_customText)
-      if @is_form_style_theme_grid() and @model_type() isnt 'group'
+      if @is_form_style_theme_grid()
         width_val = @$select_width.val()
         if width_val and width_val isnt 'select'
           value = if value then "#{value} #{width_val}" else width_val
@@ -1310,14 +1337,6 @@ module.exports = do ->
       modelValue = @model.get 'value'
       if @model_is_group(@model)
         $input = @$('input')
-
-        if @is_form_style_theme_grid()
-          $width_field = $("""<div class="card__settings__fields__field xlf-dv-width-row">
-            <label for="select-width">#{t('Width')}:</label>
-            <span class="settings__input"></span>
-          </div>""")
-          $width_field.find('.settings__input').append(@$select_width)
-          @$el.append($width_field)
 
         if @is_form_style_exist() and @is_form_style_pages()
           $container_checkbox_samescreen = $('<div/>')
@@ -1355,6 +1374,9 @@ module.exports = do ->
         if select_width_value?
           @$select_width.val(select_width_value)
 
+        if @is_form_style_theme_grid()
+          @_afterRenderGroupCols(select_width_value)
+
         @add_input_text_change_handler($input, @group_inputs_change_handler)
 
         @$select_width.off 'change'
@@ -1369,35 +1391,8 @@ module.exports = do ->
           @group_inputs_change_handler()
 
       else
-        if @is_form_style_theme_grid()
-          $width_field = $("""<div class="card__settings__fields__field xlf-dv-width-row">
-            <label for="select-width">#{t('Width')}:</label>
-            <span class="settings__input"></span>
-          </div>""")
-          $width_field.find('.settings__input').append(@$select_width)
-          @$el.append($width_field)
-
-          parent_column = 4
-          if @model_get_parent_group()? and @model_get_parent_group_appearance() != ''
-            parent_group_appearance = @model_get_parent_group_appearance()
-            if parent_group_appearance.indexOf(' ') == -1
-              if parent_group_appearance in @width_options
-                parent_column = parent_group_appearance.slice(1)
-            else
-              parent_group_appearance_last_value = parent_group_appearance.slice(parent_group_appearance.lastIndexOf(' ') + 1)
-              if parent_group_appearance_last_value in @width_options
-                parent_column = parent_group_appearance_last_value.slice(1)
-
-          parent_column = parseInt parent_column, 10
-          text_parent_columns = "Parent group has #{parent_column} columns"
-          if parent_column == 1
-            text_parent_columns = text_parent_columns.replace('columns', 'column')
-          $help_field = $("""<div class="card__settings__fields__field card__settings__fields__field--help-text-row">
-            <label></label>
-            <span class="settings__input"></span>
-          </div>""")
-          $help_field.find('.settings__input').text(text_parent_columns)
-          @$el.append($help_field)
+        # Item width section (replaces legacy width dropdown + parent-group hint)
+        @_afterRenderWidth()
 
         $select = @$('select').not('#select-width')
         if $select.length > 0
@@ -1431,8 +1426,6 @@ module.exports = do ->
 
             if select_value?
               $select.val(select_value)
-            if select_width_value?
-              @$select_width.val(select_width_value)
             if other_value?
               $select.val('other')
               @$textbox_other.insertAfter $select
@@ -1441,9 +1434,6 @@ module.exports = do ->
               @add_input_text_change_handler(@$textbox_other, @not_group_inputs_change_handler)
 
           updateSelectPlaceholderClass()
-
-          @$select_width.on 'change', () =>
-            @not_group_inputs_change_handler()
 
           $select.on 'change', () =>
             updateSelectPlaceholderClass()
@@ -1461,27 +1451,275 @@ module.exports = do ->
           $input = @$('input')
           if modelValue? and modelValue != ''
             modelValue = modelValue.trim()
-            input_value = null
-            select_width_value = null
-
             width_model_value = @get_width_from_model_value()
             if width_model_value?
-              select_width_value = width_model_value
-              modelValue = modelValue.split(select_width_value).join('')
-
-            modelValue = modelValue.trim()
+              modelValue = modelValue.split(width_model_value).join('').trim()
             if modelValue != ''
-              input_value = modelValue
-
-            if input_value?
-              $input.val(input_value)
-            if select_width_value?
-              @$select_width.val(select_width_value)
+              $input.val(modelValue)
 
           @add_input_text_change_handler($input, @group_inputs_change_handler)
 
-          @$select_width.on 'change', () =>
-            @group_inputs_change_handler()
+    # -------------------------------------------------------------------------
+    # Item width section (new adaptive picker, replaces legacy Width dropdown)
+    # -------------------------------------------------------------------------
+
+    _afterRenderWidth: ->
+      return unless @is_form_style_theme_grid()
+      $advBody = @rowView.cardSettingsWrap.find('#js-card-settings-row-options-advanced').eq(0)
+      return unless $advBody.length
+
+      # Idempotent: remove stale sub-section from a prior render
+      $advBody.find('.js-item-width-wrap').remove()
+
+      groupCols = getParentGroupCols(@)
+      groupName = getParentGroupName(@)
+      modelValue = @model.get('value') or ''
+      currentW  = getWidthFromModelValue(modelValue)
+
+      # Context line text
+      if groupName?
+        col_word = if groupCols is 1 then t('column') else t('columns')
+        contextText = "#{t('Parent group')} (#{groupName}) #{t('has')} #{groupCols} #{col_word}"
+      else
+        contextText = t('No parent group')
+
+      # Build card definitions
+      if groupCols is 4
+        cards = [
+          { slug: 'w4', label: t('Full width'),  pct: 100 }
+          { slug: 'w3', label: t('3/4 width'),   pct: 75  }
+          { slug: 'w2', label: t('Half width'),  pct: 50  }
+          { slug: 'w1', label: t('1/4 width'),   pct: 25  }
+        ]
+        defaultW = 'w4'
+      else
+        cards = for k in [1..groupCols]
+          { slug: "w#{k}", label: "#{k} of #{groupCols}", pct: Math.round(k / groupCols * 100) }
+        defaultW = "w#{groupCols}"
+
+      validSlugs = (c.slug for c in cards)
+      outOfRange = currentW? and currentW not in validSlugs
+      selectedW  = if outOfRange then null else if currentW? then currentW else defaultW
+
+      # --- Build DOM ---
+      $wrap = $('<div/>', { class: 'js-item-width-wrap item-width-subsection', style: 'grid-column: 1 / -1' })
+
+      # Header row (collapse toggle)
+      $header = $('<button/>', {
+        class: 'item-width__header js-item-width-toggle'
+        type: 'button'
+        'aria-expanded': 'false'
+      })
+      $header.append($('<span/>', { class: 'item-width__title' }).text(t('Item width in group grid')))
+      $pill = $('<span/>', { class: 'js-item-width-pill item-width__pill', style: 'display:none' })
+      $header.append($pill)
+      $chev = $('<i/>', { class: 'k-icon k-icon-angle-down item-width__chev', 'aria-hidden': 'true' })
+      $header.append($chev)
+      $wrap.append($header)
+
+      # Context line — always visible (outside collapsible body)
+      $wrap.append($('<div/>', { class: 'item-width__context' }).text(contextText))
+
+      # Collapsible body — starts hidden
+      $body = $('<div/>', { class: 'js-item-width-body item-width__body' })
+
+      if groupCols isnt 4
+        $body.append($('<div/>', { class: 'item-width__span-note' }).text(
+          "#{t('This group has')} #{groupCols} #{t('columns, so widths are shown as columns.')}"
+        ))
+
+      $grid = $('<div/>', { class: 'item-width__grid' })
+      for card in cards
+        isSelected = card.slug is selectedW
+        $card = $('<div/>', {
+          class: "width-card#{if isSelected then ' is-selected' else ''}"
+          'data-width-slug': card.slug
+          role: 'button'
+          tabindex: '0'
+          'aria-pressed': "#{isSelected}"
+        })
+        if groupCols is 4
+          $card.append($("""<div class="bar-wrap"><div class="bar-fill#{if isSelected then ' sel-fill' else ''}" style="width:#{card.pct}%"></div></div>"""))
+        else
+          k = parseInt(card.slug.slice(1), 10)
+          segsHtml = (for i in [1..groupCols]
+            if i <= k then '<span class="on"></span>' else '<span></span>'
+          ).join('')
+          $card.append($("<div class=\"seg\">#{segsHtml}</div>"))
+        $card.append($('<div/>', { class: 'width-card__label' }).text(card.label))
+        $card.append($('<div/>', { class: 'width-card__code' }).text(card.slug))
+        $grid.append($card)
+      $body.append($grid)
+
+      if outOfRange
+        $body.append($('<div/>', { class: 'item-width__advisory' }).text(
+          "#{t('The saved width')} (#{currentW}) #{t('exceeds this group\'s')} #{groupCols} #{t('columns. Make a new selection to update it.')}"
+        ))
+
+      $body.hide()
+      $wrap.append($body)
+      $advBody.prepend($wrap)
+
+      @_refreshWidthPill($pill)
+      $pill.show()
+
+      # Card select handler
+      selectWidth = (el) =>
+        slug = $(el).data('width-slug')
+        @_writeWidthValue(slug)
+        $grid.find('.width-card').removeClass('is-selected').attr('aria-pressed', 'false')
+        $grid.find('.bar-fill').removeClass('sel-fill')
+        $(el).addClass('is-selected').attr('aria-pressed', 'true')
+        $(el).find('.bar-fill').addClass('sel-fill')
+        $body.find('.item-width__advisory').remove()
+        @_refreshWidthPill($pill)
+
+      $grid.off('click.oc-width').on 'click.oc-width', '.width-card', (evt) =>
+        selectWidth(evt.currentTarget)
+      $grid.off('keydown.oc-width').on 'keydown.oc-width', '.width-card', (evt) =>
+        if evt.key in ['Enter', ' ']
+          evt.preventDefault()
+          evt.stopPropagation()
+          selectWidth(evt.currentTarget)
+
+      # Collapse toggle
+      $header.off('click.widthToggle').on 'click.widthToggle', (evt) =>
+        evt.stopPropagation()
+        isCollapsed = $body.is(':hidden')
+        if isCollapsed
+          $body.show()
+          $header.attr('aria-expanded', 'true')
+          $pill.hide()
+        else
+          $body.hide()
+          $header.attr('aria-expanded', 'false')
+          @_refreshWidthPill($pill)
+          $pill.show()
+    # -------------------------------------------------------------------------
+    # Group Columns in Grid picker (replaces Width dropdown in group settings)
+    # -------------------------------------------------------------------------
+
+    _afterRenderGroupCols: (storedVal) ->
+      return unless @is_form_style_theme_grid()
+      @$el.find('.js-group-cols-wrap').remove()
+
+      DEFAULT_COLS = 4
+      currentSelCols = null
+      unless not storedVal? or storedVal is ''
+        parsed = parseInt(storedVal.slice(1), 10)
+        currentSelCols = parsed unless isNaN(parsed) or parsed < 1 or parsed > 10
+      outOfRange = storedVal? and storedVal isnt '' and currentSelCols is null
+
+      $wrap = $('<div/>', { class: 'js-group-cols-wrap card__settings__fields__field group-cols-section' })
+      $wrap.append($('<label/>').text(t('Columns in Grid') + ':'))
+
+      $settingsInput = $('<span/>', { class: 'settings__input' })
+
+      $header = $('<button/>', {
+        class: 'group-cols__header'
+        type: 'button'
+        'aria-expanded': 'false'
+      })
+      $pill = $('<span/>', { class: 'js-group-cols-pill group-cols__pill' })
+      $header.append($pill)
+      $header.append($('<i/>', { class: 'k-icon k-icon-angle-down group-cols__chev', 'aria-hidden': 'true' }))
+      $settingsInput.append($header)
+
+      $body = $('<div/>', { class: 'js-group-cols-body group-cols__body' })
+      $body.append(
+        $('<p/>', { class: 'group-cols__instruction' }).text(
+          t('Sets how many columns items in this group are arranged into.')
+        )
+      )
+
+      $grid = $('<div/>', { class: 'group-cols__grid' })
+      for numCols in [1..10]
+        isSelected = currentSelCols is numCols
+        isDefaultCard = numCols is DEFAULT_COLS and not currentSelCols?
+        $card = $('<div/>', {
+          class: "group-cols-card#{if isSelected then ' is-selected' else ''}#{if isDefaultCard then ' is-default' else ''}"
+          'data-cols': numCols
+          role: 'button'
+          tabindex: '0'
+          'aria-pressed': "#{isSelected}"
+        })
+        segsHtml = ("<i></i>" for i in [1..numCols]).join('')
+        $card.append($("<div class=\"cols-preview\">#{segsHtml}</div>"))
+        $card.append($('<div/>', { class: 'group-cols-card__label' }).text("#{numCols}"))
+        $card.append($('<div/>', { class: 'group-cols-card__code' }).text("w#{numCols}"))
+        $grid.append($card)
+      $body.append($grid)
+
+      if outOfRange
+        $body.append(
+          $('<p/>', { class: 'group-cols__advisory' }).text(
+            "#{t('Saved value')} (#{storedVal}) #{t('is outside the supported range (w1-w10). It is preserved and will not change unless you make a new selection.')}"
+          )
+        )
+
+      $body.hide()
+      $settingsInput.append($body)
+      $wrap.append($settingsInput)
+      @$el.append($wrap)
+
+      refreshPill = =>
+        numCols = currentSelCols ? DEFAULT_COLS
+        colWord = if numCols is 1 then t('column') else t('columns')
+        $pill.text(if currentSelCols? then "#{numCols} #{colWord} · w#{numCols}" else "#{numCols} #{colWord}")
+
+      refreshPill()
+
+      selectCols = (el) =>
+        numCols = parseInt($(el).data('cols'), 10)
+        currentSelCols = numCols
+        @$select_width.val("w#{numCols}")
+        @group_inputs_change_handler()
+        $grid.find('.group-cols-card').each ->
+          $c = $(@)
+          cn = parseInt($c.data('cols'), 10)
+          $c.toggleClass('is-selected', cn is numCols).attr('aria-pressed', "#{cn is numCols}")
+          $c.removeClass('is-default')
+        refreshPill()
+
+      $grid.off('click.oc-groupcols').on 'click.oc-groupcols', '.group-cols-card', (evt) =>
+        selectCols(evt.currentTarget)
+
+      $grid.off('keydown.oc-groupcols').on 'keydown.oc-groupcols', '.group-cols-card', (evt) =>
+        if evt.key in ['Enter', ' ']
+          evt.preventDefault()
+          evt.stopPropagation()
+          selectCols(evt.currentTarget)
+
+      $header.off('click.groupColsToggle').on 'click.groupColsToggle', (evt) =>
+        evt.stopPropagation()
+        isCollapsed = $body.is(':hidden')
+        if isCollapsed
+          $body.show()
+          $header.attr('aria-expanded', 'true')
+          $pill.hide()
+        else
+          $body.hide()
+          $header.attr('aria-expanded', 'false')
+          refreshPill()
+          $pill.show()
+
+    _writeWidthValue: (widthSlug) ->
+      currentVal = @model.get('value') or ''
+      stripped = currentVal.replace(/\bw\d+\b/g, '').replace(/\s+/g, ' ').trim()
+      newVal = if stripped then "#{stripped} #{widthSlug}" else widthSlug
+      @model.set('value', newVal)
+
+    _refreshWidthPill: ($pill) ->
+      groupCols = getParentGroupCols(@)
+      currentW  = getWidthFromModelValue(@model.get('value') or '')
+      unless currentW?
+        currentW = if groupCols is 4 then 'w4' else "w#{groupCols}"
+      label = buildWidthPillText(currentW, groupCols)
+      k = parseInt(currentW.slice(1), 10)
+      pct = Math.min(100, Math.round(k / groupCols * 100))
+      $pill.empty()
+        .append($("""<span class="pill-bar"><span class="pill-fill" style="width:#{pct}%"></span></span>"""))
+        .append(document.createTextNode(" #{label} · #{currentW}"))
 
     # -------------------------------------------------------------------------
     # Helpers shared by both paths (kept from original)
@@ -1536,13 +1774,11 @@ module.exports = do ->
         input_value = $input.val().trim()
         model_set_value = input_value
 
-      select_width_value = @$select_width.val()
-      select_width_value = @select_width_default_value if select_width_value == 'select'
-      if model_set_value != ''
-        if select_width_value != ''
-          model_set_value += " #{select_width_value}"
-      else
-        model_set_value = select_width_value
+      # Preserve item width token managed by the Item width section
+      if @is_form_style_theme_grid()
+        existingWidth = getWidthFromModelValue(@model.get('value') or '')
+        if existingWidth
+          model_set_value = if model_set_value != '' then "#{model_set_value} #{existingWidth}" else existingWidth
 
       @model.set 'value', model_set_value
 
@@ -1562,13 +1798,19 @@ module.exports = do ->
       else
         model_set_value = input_value
 
-      select_width_value = @$select_width.val()
-      select_width_value = @select_width_default_value if select_width_value == 'select'
-      if model_set_value != ''
-        if select_width_value != ''
-          model_set_value += " #{select_width_value}"
-      else
-        model_set_value = select_width_value
+      if @model_is_group(@model)
+        # Group appearance: @$select_width sets the group's own column count
+        select_width_value = @$select_width.val()
+        select_width_value = @select_width_default_value if select_width_value == 'select'
+        if model_set_value != ''
+          model_set_value += " #{select_width_value}" if select_width_value != ''
+        else
+          model_set_value = select_width_value
+      else if @is_form_style_theme_grid()
+        # Non-group textbox: preserve item width token
+        existingWidth = getWidthFromModelValue(@model.get('value') or '')
+        if existingWidth
+          model_set_value = if model_set_value != '' then "#{model_set_value} #{existingWidth}" else existingWidth
 
       @model.set 'value', model_set_value
 
@@ -2076,5 +2318,7 @@ module.exports = do ->
   viewRowDetail.parseAppearanceValue = parseAppearanceValue
   viewRowDetail.buildModelValue = buildModelValue
   viewRowDetail.buildPillText = buildPillText
+  viewRowDetail.getWidthFromModelValue = getWidthFromModelValue
+  viewRowDetail.buildWidthPillText = buildWidthPillText
 
   viewRowDetail
