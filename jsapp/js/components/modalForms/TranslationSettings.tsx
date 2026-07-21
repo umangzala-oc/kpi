@@ -3,6 +3,8 @@ import React from 'react'
 import alertify from 'alertifyjs'
 import cloneDeep from 'lodash.clonedeep'
 import { actions } from '#/actions'
+import { invalidateItem } from '#/api/mutation-defaults/common'
+import { getAssetsRetrieveQueryKey } from '#/api/react-query/manage-projects-and-library-content'
 import assetStore, { type AssetStoreData } from '#/assetStore'
 import bem from '#/bem'
 import Button from '#/components/common/button'
@@ -269,6 +271,11 @@ export class TranslationSettings extends React.Component<TranslationSettingsProp
       { content: JSON.stringify(content) },
       // reload asset on failure
       {
+        onComplete: () => {
+          // Keep the React Query asset cache in sync so Form Designer's live
+          // preview/save reads the freshly-saved translations.
+          invalidateItem(getAssetsRetrieveQueryKey(this.state.asset.uid))
+        },
         onFailed: () => {
           actions.resources.loadAsset({ id: this.state.asset.uid }, true)
           notify.error('failed to update translations')

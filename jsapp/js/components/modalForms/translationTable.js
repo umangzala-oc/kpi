@@ -4,6 +4,8 @@ import alertify from 'alertifyjs'
 import ReactTable from 'react-table'
 import TextareaAutosize from 'react-textarea-autosize'
 import { actions } from '#/actions'
+import { invalidateItem } from '#/api/mutation-defaults/common'
+import { getAssetsRetrieveQueryKey } from '#/api/react-query/manage-projects-and-library-content'
 import bem from '#/bem'
 import Button from '#/components/common/button'
 import LoadingSpinner from '#/components/common/loadingSpinner'
@@ -183,7 +185,12 @@ export class TranslationTable extends React.Component {
         content: JSON.stringify(content),
       },
       {
-        onComplete: this.markFormIdle.bind(this),
+        onComplete: () => {
+          this.markFormIdle()
+          // Keep the React Query asset cache in sync so Form Designer's live
+          // preview/save reads the freshly-saved translations.
+          invalidateItem(getAssetsRetrieveQueryKey(this.props.asset.uid))
+        },
         onFailed: this.markFormUnsaved.bind(this),
       },
     )
@@ -232,6 +239,11 @@ export class TranslationTable extends React.Component {
       { content: JSON.stringify(content) },
       // reload asset on failure
       {
+        onComplete: () => {
+          // Keep the React Query asset cache in sync so Form Designer's live
+          // preview/save reads the freshly-saved translations.
+          invalidateItem(getAssetsRetrieveQueryKey(this.props.asset.uid))
+        },
         onFailed: () => {
           actions.resources.loadAsset({ id: this.props.asset.uid }, true)
           notify.error('failed to update translations')
