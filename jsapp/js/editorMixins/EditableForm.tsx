@@ -487,7 +487,7 @@ export default function EditableForm(props: EditableFormProps) {
       params.asset = state.asset.url
     }
 
-    if (assetUid !== '') {
+    if (assetUid !== '' && app.survey._initialParams?.translations_0) {
       try {
         const freshAsset = await dataInterface.getAsset({ id: assetUid })
         surveyJSON = mergeFreshTranslations(
@@ -626,16 +626,18 @@ export default function EditableForm(props: EditableFormProps) {
         asset_updated: update_states.PENDING_UPDATE,
       }))
 
-      try {
-        const freshAsset = await dataInterface.getAsset({ id: assetUid })
-        params.content = mergeFreshTranslations(
-          params.content,
-          freshAsset.content,
-          app.survey._initialParams?.translations_0 ?? null,
-        )
-      } catch {
-        // Fresh fetch failed — fall back to saving with the live model's own
-        // translations rather than blocking the save entirely.
+      if (app.survey._initialParams?.translations_0) {
+        try {
+          const freshAsset = await dataInterface.getAsset({ id: assetUid })
+          params.content = mergeFreshTranslations(
+            params.content,
+            freshAsset.content,
+            app.survey._initialParams?.translations_0 ?? null,
+          )
+        } catch {
+          // Fresh fetch failed — fall back to saving with the live model's own
+          // translations rather than blocking the save entirely.
+        }
       }
 
       // TODO: change this into react-query mutation
