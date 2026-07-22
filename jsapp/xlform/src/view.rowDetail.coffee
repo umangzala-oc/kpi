@@ -1195,6 +1195,10 @@ module.exports = do ->
       @_columnCount = columnCount
       @_customText = customText
 
+      # Sync @$select_width with any saved column count so card clicks preserve it
+      currentWidth = @get_width_from_model_value()
+      @$select_width.val(currentWidth) if currentWidth?
+
       $section = @rowView.cardSettingsWrap.find('.js-card-settings-appearance').eq(0)
       $pill    = $section.find('.js-appearance-pill').eq(0)
       $toggle  = $section.find('.js-appearance-toggle').eq(0)
