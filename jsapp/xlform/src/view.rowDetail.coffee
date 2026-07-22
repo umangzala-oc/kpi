@@ -1199,6 +1199,10 @@ module.exports = do ->
       $pill    = $section.find('.js-appearance-pill').eq(0)
       $toggle  = $section.find('.js-appearance-toggle').eq(0)
 
+      # For groups: render columns picker first so it appears above the appearance cards
+      if questionType is 'group'
+        @_afterRenderGroupCols(@get_width_from_model_value())
+
       # Build card grid — clear any prior grid before re-rendering
       @$el.find('.card__settings__appearance-grid').remove()
       cards = getAppearanceCards(questionType)
@@ -1233,8 +1237,9 @@ module.exports = do ->
       @$el.off('keydown.oc-appearance').on 'keydown.oc-appearance', '.appearance-card', (evt) =>
         selectCard(evt.currentTarget) if evt.key in ['Enter', ' ']
 
-      # Item width section
-      @_afterRenderWidth()
+      # For non-groups: item width picker (appears after the appearance cards)
+      unless questionType is 'group'
+        @_afterRenderWidth()
 
       # Initial pill (section starts collapsed)
       @_refreshPill($pill)
@@ -1673,7 +1678,10 @@ module.exports = do ->
         numCols = parseInt($(el).data('cols'), 10)
         currentSelCols = numCols
         @$select_width.val("w#{numCols}")
-        @group_inputs_change_handler()
+        if @_card?
+          @_writeModelValue()
+        else
+          @group_inputs_change_handler()
         $grid.find('.group-cols-card').each ->
           $c = $(@)
           cn = parseInt($c.data('cols'), 10)
