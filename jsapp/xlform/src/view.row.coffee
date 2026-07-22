@@ -793,15 +793,16 @@ module.exports = do ->
             evt.preventDefault()
             $calcTextarea.blur()
 
-        $calcTabError = @cardSettingsWrap.find('.js-calculation-tab-error')
-        updateCalcTabError = ->
-          if ($calcTextarea.val() or '').trim() is ''
-            $calcTabError.removeClass('calculation-tab__error--hidden')
-          else
-            $calcTabError.addClass('calculation-tab__error--hidden')
-        $calcTextarea.on('blur', updateCalcTabError)
-        $calcTextarea.on('keyup', updateCalcTabError)
-        updateCalcTabError()
+        if questionType is 'calculate'
+          $calcTabError = @cardSettingsWrap.find('.js-calculation-tab-error')
+          updateCalcTabError = ->
+            if ($calcTextarea.val() or '').trim() is ''
+              $calcTabError.removeClass('calculation-tab__error--hidden')
+            else
+              $calcTabError.addClass('calculation-tab__error--hidden')
+          $calcTextarea.on('blur', updateCalcTabError)
+          $calcTextarea.on('keyup', updateCalcTabError)
+          updateCalcTabError()
 
         if questionType is 'calculate'
           makeRequiredCheck = ->
