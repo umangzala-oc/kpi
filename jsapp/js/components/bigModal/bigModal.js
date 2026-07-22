@@ -174,8 +174,8 @@ class BigModal extends React.Component {
 
       case MODAL_TYPES.FORM_TRANSLATIONS_TABLE:
         this.setState({
-          title: t('Translations Table'),
-          modalClass: 'modal--large',
+          title: `${t('Translations table')} — ${this.props.params.langString}`,
+          modalClass: 'modal--form-translations-table modal--oc',
         })
         break
 
