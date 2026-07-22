@@ -800,11 +800,9 @@ module.exports = do ->
               $calcTabError.removeClass('calculation-tab__error--hidden')
             else
               $calcTabError.addClass('calculation-tab__error--hidden')
-          $calcTextarea.on('blur', updateCalcTabError)
-          $calcTextarea.on('keyup', updateCalcTabError)
+          $calcTextarea.on('blur input', updateCalcTabError)
           updateCalcTabError()
 
-        if questionType is 'calculate'
           makeRequiredCheck = ->
             $field = $calcTextarea.closest('.calculation-panel__field')
             if ($calcTextarea.val() or '').trim() is ''
@@ -815,8 +813,7 @@ module.exports = do ->
             else
               $field.removeClass('input-error')
               $calcTextarea.siblings('.message').remove()
-          $calcTextarea.on('blur', makeRequiredCheck)
-          $calcTextarea.on('keyup', makeRequiredCheck)
+          $calcTextarea.on('blur input', makeRequiredCheck)
 
         if triggerModel
           $select = $calcPanel.find('.js-calculation-trigger-select')
