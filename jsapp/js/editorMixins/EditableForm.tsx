@@ -25,6 +25,7 @@ import {
   type KoboMatrixParserParams,
   getFormBuilderAssetType,
   koboMatrixParser,
+  mergeFreshTranslations,
   surveyToValidJson,
   unnullifyTranslations,
 } from '#/components/formBuilder/formBuilderUtils'
@@ -454,7 +455,7 @@ export default function EditableForm(props: EditableFormProps) {
     return state.asset_updated === update_states.UNSAVED_CHANGES
   }
 
-  function previewForm(evt: React.TouchEvent<HTMLButtonElement>) {
+  async function previewForm(evt: React.TouchEvent<HTMLButtonElement>) {
     // At this point app should really be defined, and if not, there is no point in doing anything
     if (!app) {
       console.error('app is not defined!')
@@ -482,11 +483,26 @@ export default function EditableForm(props: EditableFormProps) {
       use_study_designer_preview?: boolean
     } = { source: surveyJSON, use_study_designer_preview: true }
 
-    params = koboMatrixParser(params)
-
     if (state.asset && state.asset.url) {
       params.asset = state.asset.url
     }
+
+    if (assetUid !== '') {
+      try {
+        const freshAsset = await dataInterface.getAsset({ id: assetUid })
+        surveyJSON = mergeFreshTranslations(
+          surveyJSON,
+          freshAsset.content,
+          app.survey._initialParams?.translations_0 ?? null,
+        )
+        params.source = surveyJSON
+      } catch {
+        // Fresh fetch failed — fall back to previewing with the live model's
+        // own (possibly stale) translations rather than blocking preview entirely.
+      }
+    }
+
+    params = koboMatrixParser(params)
 
     dataInterface
       .createAssetSnapshot(params)
@@ -510,7 +526,7 @@ export default function EditableForm(props: EditableFormProps) {
       })
   }
 
-  function saveForm(evt: React.TouchEvent<HTMLButtonElement>) {
+  async function saveForm(evt: React.TouchEvent<HTMLButtonElement>) {
     if (evt && evt.preventDefault) {
       evt.preventDefault()
     }
@@ -582,6 +598,10 @@ export default function EditableForm(props: EditableFormProps) {
     }
 
     if (state.isNewAsset) {
+      setState((currentState) => ({
+        ...currentState,
+        asset_updated: update_states.PENDING_UPDATE,
+      }))
       // we're intentionally leaving after creating new asset,
       // so there is nothing unsaved here
       unpreventClosingTab()
@@ -601,6 +621,23 @@ export default function EditableForm(props: EditableFormProps) {
         props.router.navigate(ROUTES.LIBRARY)
       })
     } else if (assetUid !== '') {
+      setState((currentState) => ({
+        ...currentState,
+        asset_updated: update_states.PENDING_UPDATE,
+      }))
+
+      try {
+        const freshAsset = await dataInterface.getAsset({ id: assetUid })
+        params.content = mergeFreshTranslations(
+          params.content,
+          freshAsset.content,
+          app.survey._initialParams?.translations_0 ?? null,
+        )
+      } catch {
+        // Fresh fetch failed — fall back to saving with the live model's own
+        // translations rather than blocking the save entirely.
+      }
+
       // TODO: change this into react-query mutation
       actions.resources.updateAsset
         .triggerAsync(assetUid, params)
@@ -639,10 +676,6 @@ export default function EditableForm(props: EditableFormProps) {
           }))
         })
     }
-    setState((currentState) => ({
-      ...currentState,
-      asset_updated: update_states.PENDING_UPDATE,
-    }))
   }
 
   function buttonStates() {
