@@ -1235,7 +1235,9 @@ module.exports = do ->
       @$el.off('click.oc-appearance').on 'click.oc-appearance', '.appearance-card', (evt) =>
         selectCard(evt.currentTarget)
       @$el.off('keydown.oc-appearance').on 'keydown.oc-appearance', '.appearance-card', (evt) =>
-        selectCard(evt.currentTarget) if evt.key in ['Enter', ' ']
+        if evt.key in ['Enter', ' ']
+          evt.preventDefault()
+          selectCard(evt.currentTarget)
 
       # For groups: Columns in Grid as own section after Appearance; for non-groups: item width picker
       if questionType is 'group'
