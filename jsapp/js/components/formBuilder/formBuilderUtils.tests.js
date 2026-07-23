@@ -1,7 +1,9 @@
 import {
+  applyFreshPrimaryLanguage,
   mergeFreshTranslations,
   nullifyTranslations,
   readParameters,
+  resolveCurrentPrimaryLanguage,
   unnullifyTranslations,
   writeParameters,
 } from '#/components/formBuilder/formBuilderUtils'
@@ -542,5 +544,57 @@ describe('mergeFreshTranslations', () => {
     expect(result.survey[0]['label::English (en)']).to.equal('Hello')
     expect(result.survey[0]['label::Polski (pl)']).to.equal('Cześć')
     expect(result.survey[0]).to.not.have.property('label')
+  })
+})
+
+describe('resolveCurrentPrimaryLanguage', () => {
+  it('1. prefers the fresh asset primary language over the frozen mount snapshot', () => {
+    const result = resolveCurrentPrimaryLanguage(
+      { translations: ['French (fr)', 'English (en)'], translated: ['label'] },
+      { translations_0: 'English (en)', translated: ['label', 'hint'] },
+    )
+    expect(result.primaryLangName).to.equal('French (fr)')
+    expect(result.translatedProps).to.deep.equal(['label'])
+  })
+
+  it('2. falls back to translations_0 when fresh translations[0] is null', () => {
+    const result = resolveCurrentPrimaryLanguage(
+      { translations: [null, 'Polski (pl)'], translations_0: 'English (en)', translated: ['label'] },
+      undefined,
+    )
+    expect(result.primaryLangName).to.equal('English (en)')
+  })
+
+  it('3. falls back to the frozen mount snapshot when there is no fresh content', () => {
+    const result = resolveCurrentPrimaryLanguage(undefined, { translations_0: 'English (en)', translated: ['label'] })
+    expect(result.primaryLangName).to.equal('English (en)')
+    expect(result.translatedProps).to.deep.equal(['label'])
+  })
+
+  it('4. returns null and an empty list when neither source has a primary language', () => {
+    const result = resolveCurrentPrimaryLanguage(undefined, undefined)
+    expect(result.primaryLangName).to.equal(null)
+    expect(result.translatedProps).to.deep.equal([])
+  })
+})
+
+describe('applyFreshPrimaryLanguage', () => {
+  it('1. unnullifies the survey JSON when a primary language is found', () => {
+    const surveyDataJSON = JSON.stringify({ settings: [{}], survey: [{ name: 'q1', label: 'Hello' }] })
+    const result = applyFreshPrimaryLanguage(
+      surveyDataJSON,
+      { translations: ['English (en)'], translated: ['label'] },
+      undefined,
+    )
+    expect(result.primaryLangName).to.equal('English (en)')
+    const survey = JSON.parse(result.surveyDataJSON)
+    expect(survey.survey[0]['label::English (en)']).to.equal('Hello')
+  })
+
+  it('2. leaves the survey JSON untouched when no primary language is found', () => {
+    const surveyDataJSON = JSON.stringify({ settings: [{}], survey: [{ name: 'q1', label: 'Hello' }] })
+    const result = applyFreshPrimaryLanguage(surveyDataJSON, undefined, undefined)
+    expect(result.primaryLangName).to.equal(null)
+    expect(result.surveyDataJSON).to.equal(surveyDataJSON)
   })
 })

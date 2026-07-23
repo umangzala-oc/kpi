@@ -150,6 +150,51 @@ export function mergeFreshTranslations(
 }
 
 /**
+ * Resolves the form's current primary-language name and translated-property
+ * list, preferring a freshly-fetched asset's actual current state over the
+ * Form Builder survey model's frozen mount-time snapshot (`_initialParams`,
+ * captured once when the model was built and never updated afterward — see
+ * EditableForm.tsx's previewForm()/saveForm(), which both need this and
+ * previously duplicated the same fallback logic inline in two places).
+ */
+export function resolveCurrentPrimaryLanguage(
+  freshContent: AssetContent | undefined,
+  frozenInitialParams: AssetContent | undefined,
+): { primaryLangName: string | null; translatedProps: string[] } {
+  // `translations[0]` is normally the real primary-language name, but
+  // (mirroring mergeFreshTranslations() above) it can be `null` with the name
+  // stored in `translations_0` instead.
+  const primaryLangName =
+    freshContent?.translations?.[0] ?? freshContent?.translations_0 ?? frozenInitialParams?.translations_0 ?? null
+  const translatedProps = freshContent?.translated ?? frozenInitialParams?.translated ?? []
+  return { primaryLangName, translatedProps }
+}
+
+/**
+ * Resolves the current primary language (see resolveCurrentPrimaryLanguage())
+ * and, if one exists, unnullifies `surveyDataJSON` against it. Bundles the
+ * two steps together since every caller needs both and previously duplicated
+ * this same pairing inline in two places (Form Designer's previewForm() and
+ * saveForm()).
+ */
+export function applyFreshPrimaryLanguage(
+  surveyDataJSON: string,
+  freshContent: AssetContent | undefined,
+  frozenInitialParams: AssetContent | undefined,
+): { surveyDataJSON: string; primaryLangName: string | null } {
+  const { primaryLangName, translatedProps } = resolveCurrentPrimaryLanguage(freshContent, frozenInitialParams)
+  if (!primaryLangName) {
+    return { surveyDataJSON, primaryLangName }
+  }
+  const updatedSurveyDataJSON = unnullifyTranslations(surveyDataJSON, {
+    ...frozenInitialParams,
+    translations_0: primaryLangName,
+    translated: translatedProps,
+  })
+  return { surveyDataJSON: updatedSurveyDataJSON, primaryLangName }
+}
+
+/**
  * @typedef NullifiedTranslations
  * @property {object} survey - Modified survey.
  * @property {Array<string|null>} translations - Modified translations.

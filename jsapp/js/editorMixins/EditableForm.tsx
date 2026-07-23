@@ -23,11 +23,11 @@ import TextBox from '#/components/common/textBox'
 import { isEConsentSignatureRow } from '#/components/formBuilder/econsentSignature'
 import {
   type KoboMatrixParserParams,
+  applyFreshPrimaryLanguage,
   getFormBuilderAssetType,
   koboMatrixParser,
   mergeFreshTranslations,
   surveyToValidJson,
-  unnullifyTranslations,
 } from '#/components/formBuilder/formBuilderUtils'
 import FormLockedMessage from '#/components/locking/formLockedMessage'
 import { LOCKING_UI_CLASSNAMES, LockingRestrictionName } from '#/components/locking/lockingConstants'
@@ -455,6 +455,26 @@ export default function EditableForm(props: EditableFormProps) {
     return state.asset_updated === update_states.UNSAVED_CHANGES
   }
 
+  /**
+   * Fetches the asset's current saved state, used by previewForm()/saveForm()
+   * to resolve the form's actual current primary language and translations
+   * instead of the live model's frozen mount-time snapshot (see the comment
+   * on `applyFreshPrimaryLanguage` usage in both functions for why).
+   */
+  async function fetchFreshAsset(
+    uid: string,
+  ): Promise<{ freshAsset: AssetResponse | undefined; fetchFailed: boolean }> {
+    if (uid === '') {
+      return { freshAsset: undefined, fetchFailed: false }
+    }
+    try {
+      const freshAsset = await dataInterface.getAsset({ id: uid })
+      return { freshAsset, fetchFailed: false }
+    } catch {
+      return { freshAsset: undefined, fetchFailed: true }
+    }
+  }
+
   async function previewForm(evt: React.TouchEvent<HTMLButtonElement>) {
     // At this point app should really be defined, and if not, there is no point in doing anything
     if (!app) {
@@ -483,25 +503,13 @@ export default function EditableForm(props: EditableFormProps) {
     // the first time in this session would otherwise never be picked up,
     // since `_initialParams.translations_0` stays permanently unset for any
     // form that had no primary language when Form Designer first loaded.
-    let freshAsset: AssetResponse | undefined
-    if (assetUid !== '') {
-      try {
-        freshAsset = await dataInterface.getAsset({ id: assetUid })
-      } catch {
-        // Fresh fetch failed — fall back to the live model's own (possibly
-        // stale or language-blind) translations rather than blocking preview.
-      }
-    }
-    const primaryLangName = freshAsset?.content?.translations?.[0] ?? app?.survey._initialParams?.translations_0 ?? null
-    const translatedProps = freshAsset?.content?.translated ?? app?.survey._initialParams?.translated ?? []
+    // A failed fetch just falls back to the live model's own (possibly stale
+    // or language-blind) translations rather than blocking preview.
+    const { freshAsset } = await fetchFreshAsset(assetUid)
+    const primaryLangResult = applyFreshPrimaryLanguage(surveyJSON, freshAsset?.content, app?.survey._initialParams)
+    surveyJSON = primaryLangResult.surveyDataJSON
+    const primaryLangName = primaryLangResult.primaryLangName
 
-    if (primaryLangName) {
-      surveyJSON = unnullifyTranslations(surveyJSON, {
-        ...app?.survey._initialParams,
-        translations_0: primaryLangName,
-        translated: translatedProps,
-      })
-    }
     let params: KoboMatrixParserParams & {
       asset?: string
       use_study_designer_preview?: boolean
@@ -613,15 +621,7 @@ export default function EditableForm(props: EditableFormProps) {
     // (`app.survey._initialParams`, set once in the Survey constructor and
     // never updated — see model.survey.coffee, and the same comment in
     // previewForm()). Only relevant once the asset actually exists server-side.
-    let freshAsset: AssetResponse | undefined
-    let freshFetchFailed = false
-    if (assetUid !== '') {
-      try {
-        freshAsset = await dataInterface.getAsset({ id: assetUid })
-      } catch {
-        freshFetchFailed = true
-      }
-    }
+    const { freshAsset, fetchFailed: freshFetchFailed } = await fetchFreshAsset(assetUid)
 
     // If the live model has never known about a primary language this
     // session (i.e. one was set for the first time via Manage Languages,
@@ -642,16 +642,10 @@ export default function EditableForm(props: EditableFormProps) {
       return
     }
 
-    const primaryLangName = freshAsset?.content?.translations?.[0] ?? app.survey._initialParams?.translations_0 ?? null
-    const translatedProps = freshAsset?.content?.translated ?? app.survey._initialParams?.translated ?? []
+    const primaryLangResult = applyFreshPrimaryLanguage(surveyJSON, freshAsset?.content, app.survey._initialParams)
+    surveyJSON = primaryLangResult.surveyDataJSON
+    const primaryLangName = primaryLangResult.primaryLangName
 
-    if (primaryLangName) {
-      surveyJSON = unnullifyTranslations(surveyJSON, {
-        ...app.survey._initialParams,
-        translations_0: primaryLangName,
-        translated: translatedProps,
-      })
-    }
     // We normally have `content` as an actual object, not a stringified representation, but since
     // `actions.resources.updateAsset` already works with JSON string, let's extend the types
     const params: Partial<AssetRequestObject> & { content: string } = { content: surveyJSON }
