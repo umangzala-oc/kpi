@@ -475,8 +475,32 @@ export default function EditableForm(props: EditableFormProps) {
     }
 
     let surveyJSON = surveyToValidJson(app?.survey)
-    if (app?.survey._initialParams?.translations_0) {
-      surveyJSON = unnullifyTranslations(surveyJSON, app.survey._initialParams)
+
+    // Fetch the current saved asset up front, rather than gating unnullify/
+    // merge on the live model's frozen mount-time primary-language snapshot
+    // (`app.survey._initialParams`, set once in the Survey constructor and
+    // never updated — see model.survey.coffee). A primary language set for
+    // the first time in this session would otherwise never be picked up,
+    // since `_initialParams.translations_0` stays permanently unset for any
+    // form that had no primary language when Form Designer first loaded.
+    let freshAsset: AssetResponse | undefined
+    if (assetUid !== '') {
+      try {
+        freshAsset = await dataInterface.getAsset({ id: assetUid })
+      } catch {
+        // Fresh fetch failed — fall back to the live model's own (possibly
+        // stale or language-blind) translations rather than blocking preview.
+      }
+    }
+    const primaryLangName = freshAsset?.content?.translations?.[0] ?? app?.survey._initialParams?.translations_0 ?? null
+    const translatedProps = freshAsset?.content?.translated ?? app?.survey._initialParams?.translated ?? []
+
+    if (primaryLangName) {
+      surveyJSON = unnullifyTranslations(surveyJSON, {
+        ...app?.survey._initialParams,
+        translations_0: primaryLangName,
+        translated: translatedProps,
+      })
     }
     let params: KoboMatrixParserParams & {
       asset?: string
@@ -487,19 +511,16 @@ export default function EditableForm(props: EditableFormProps) {
       params.asset = state.asset.url
     }
 
-    if (assetUid !== '' && app.survey._initialParams?.translations_0) {
-      try {
-        const freshAsset = await dataInterface.getAsset({ id: assetUid })
-        surveyJSON = mergeFreshTranslations(
-          surveyJSON,
-          freshAsset.content,
-          app.survey._initialParams?.translations_0 ?? null,
-        )
-        params.source = surveyJSON
-      } catch {
-        // Fresh fetch failed — fall back to previewing with the live model's
-        // own (possibly stale) translations rather than blocking preview entirely.
-      }
+    if (freshAsset?.content && primaryLangName) {
+      // Only protect the primary language from the merge when there's an
+      // actual unsaved local edit pending in this session (`needsSave()`).
+      // Without that, the common case — translate the primary language via
+      // Translations Table, then Preview without having touched anything
+      // inline — would keep showing the stale primary-language text for no
+      // reason, since there's nothing local left to protect.
+      const protectedLangName = needsSave() ? primaryLangName : null
+      surveyJSON = mergeFreshTranslations(surveyJSON, freshAsset.content, protectedLangName)
+      params.source = surveyJSON
     }
 
     params = koboMatrixParser(params)
@@ -586,8 +607,50 @@ export default function EditableForm(props: EditableFormProps) {
     if (surveyJSONWithMatrix) {
       surveyJSON = surveyJSONWithMatrix
     }
-    if (app.survey._initialParams?.translations_0) {
-      surveyJSON = unnullifyTranslations(surveyJSON, app.survey._initialParams)
+
+    // Fetch the current saved asset up front, rather than gating unnullify/
+    // merge on the live model's frozen mount-time primary-language snapshot
+    // (`app.survey._initialParams`, set once in the Survey constructor and
+    // never updated — see model.survey.coffee, and the same comment in
+    // previewForm()). Only relevant once the asset actually exists server-side.
+    let freshAsset: AssetResponse | undefined
+    let freshFetchFailed = false
+    if (assetUid !== '') {
+      try {
+        freshAsset = await dataInterface.getAsset({ id: assetUid })
+      } catch {
+        freshFetchFailed = true
+      }
+    }
+
+    // If the live model has never known about a primary language this
+    // session (i.e. one was set for the first time via Manage Languages,
+    // after this page loaded) AND we couldn't confirm the asset's actual
+    // current language state from the server, saving now would silently
+    // overwrite (delete) any language(s) added this session — abort rather
+    // than risk it.
+    if (assetUid !== '' && !app.survey._initialParams?.translations_0 && freshFetchFailed) {
+      alertify.defaults.theme.ok = 'ajs-cancel'
+      const dialog = alertify.dialog('alert')
+      dialog
+        .set({
+          title: t('Error saving form'),
+          message: t("Could not verify the form's current languages before saving. Please try again."),
+          label: t('Dismiss'),
+        })
+        .show()
+      return
+    }
+
+    const primaryLangName = freshAsset?.content?.translations?.[0] ?? app.survey._initialParams?.translations_0 ?? null
+    const translatedProps = freshAsset?.content?.translated ?? app.survey._initialParams?.translated ?? []
+
+    if (primaryLangName) {
+      surveyJSON = unnullifyTranslations(surveyJSON, {
+        ...app.survey._initialParams,
+        translations_0: primaryLangName,
+        translated: translatedProps,
+      })
     }
     // We normally have `content` as an actual object, not a stringified representation, but since
     // `actions.resources.updateAsset` already works with JSON string, let's extend the types
@@ -626,18 +689,15 @@ export default function EditableForm(props: EditableFormProps) {
         asset_updated: update_states.PENDING_UPDATE,
       }))
 
-      if (app.survey._initialParams?.translations_0) {
-        try {
-          const freshAsset = await dataInterface.getAsset({ id: assetUid })
-          params.content = mergeFreshTranslations(
-            params.content,
-            freshAsset.content,
-            app.survey._initialParams?.translations_0 ?? null,
-          )
-        } catch {
-          // Fresh fetch failed — fall back to saving with the live model's own
-          // translations rather than blocking the save entirely.
-        }
+      if (freshAsset?.content && primaryLangName) {
+        // Only protect the primary language when there was an actual unsaved
+        // local edit pending before this save started (`needsSave()`, read
+        // here before it flips to PENDING_UPDATE above — the `state` this
+        // closure captured at render time doesn't change until next
+        // render, so this still reads the pre-save value). See the same
+        // comment in previewForm() for why this matters.
+        const protectedLangName = needsSave() ? primaryLangName : null
+        params.content = mergeFreshTranslations(params.content, freshAsset.content, protectedLangName)
       }
 
       // TODO: change this into react-query mutation
