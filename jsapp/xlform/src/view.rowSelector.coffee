@@ -81,6 +81,10 @@ module.exports = do ->
       @line.html $viewTemplates.$$render('xlfRowSelector.line', "")
       @line.find('.row__questiontypes__new-question-name').val(@question_name)
       $menu = @line.find(".row__questiontypes__list")
+      # OC-28120: select_one_from_file/select_multiple_from_file are no longer
+      # hidden when the survey has no attached files. Upstream kobotoolbox/kpi#4403
+      # hides them in that case; OC intentionally dropped that gate, so don't
+      # reintroduce it when porting a future upstream Form Designer bump.
       econsentIcon = null
       for mrow in $icons.grouped()
         menurow = $("<div>", class: "questiontypelist__row").appendTo $menu

@@ -515,7 +515,6 @@ module.exports = do ->
       @fieldTab = "active"
       @$el.addClass("card__settings__fields--file")
       available_files = this.model.getSurvey().availableFiles || []
-      file = available_files[0]
       tfile = t("Choices File")
       if available_files.length is 0
         return viewRowDetail.Templates.textbox @cid, @model.key, tfile, 'text'
