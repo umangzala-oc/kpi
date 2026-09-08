@@ -135,7 +135,7 @@ export default class PopoverMenu extends React.Component<PopoverMenuProps, Popov
 
     return (
       <bem.PopoverMenu m={wrapperMods}>
-        <bem.PopoverMenu__toggle onClick={this.toggle} onBlur={this.toggle} tabIndex='1'>
+        <bem.PopoverMenu__toggle onClick={this.toggle} onBlur={this.toggle} tabIndex={0}>
           {this.props.triggerLabel}
         </bem.PopoverMenu__toggle>
 
