@@ -20,7 +20,7 @@ import { type LangObject, escapeHtml, getLangString, notify } from '#/utils'
 
 interface TranslationSettingsProps {
   asset: AssetResponse
-  hasUnsavedChanges?: boolean
+  hasUnsavedChanges?: () => boolean
 }
 
 interface TranslationSettingsState {
@@ -68,6 +68,7 @@ export class TranslationSettings extends React.Component<TranslationSettingsProp
     pageState.showModal({
       type: MODAL_TYPES.FORM_LANGUAGES,
       asset: asset,
+      hasUnsavedChanges: this.props.hasUnsavedChanges,
     })
   }
 
@@ -244,12 +245,18 @@ export class TranslationSettings extends React.Component<TranslationSettingsProp
     const langString = this.state.translations?.[index]
 
     const dialog = alertify.dialog('confirm')
+    let message = t('Are you sure you would like to set ##lang## as the primary language for this form?').replace(
+      '##lang##',
+      escapeHtml(String(langString)),
+    )
+    // OC-28661: the editor re-initialises from the saved asset after this change,
+    // so any local edits in the Form Designer will be lost.
+    if (this.props.hasUnsavedChanges?.()) {
+      message += ' ' + t('You have unsaved changes that will be discarded.')
+    }
     const opts = {
       title: t('Change primary language?'),
-      message: t('Are you sure you would like to set ##lang## as the primary language for this form?').replace(
-        '##lang##',
-        escapeHtml(String(langString)),
-      ),
+      message,
       labels: { ok: t('Confirm'), cancel: t('Cancel') },
       onok: () => {
         const content = cloneDeep(this.state.asset.content)
@@ -476,7 +483,7 @@ export class TranslationSettings extends React.Component<TranslationSettingsProp
 
     const translations = this.state.translations
     if (!translations || translations?.length === 0) {
-      return this.props.hasUnsavedChanges ? this.renderSaveDraftMessage() : this.renderEmptyMessage()
+      return this.props.hasUnsavedChanges?.() ? this.renderSaveDraftMessage() : this.renderEmptyMessage()
     } else if (translations?.length === 1 && translations[0] === null) {
       // use this modal if there are only unnamed translations
       return this.renderUndefinedDefaultSettings()
