@@ -154,19 +154,16 @@ export function readCurrentExpression(row: any, attribute: string): string {
   }
   if (raw.trim() !== '') {
     if (FACADE_ATTRIBUTES.has(attribute) && String(detail?.getValue?.() ?? '').trim() === '') {
-      // The facade serializes to '' for two distinct reasons: (A) the user
-      // explicitly cleared all conditions — must return '' (no confirmation);
-      // (B) a field the expression references was deleted from the form and
-      // build_criterion_builder filtered every clause out, leaving an empty
-      // builder — must retain raw so the overwrite confirmation fires (OC-28602).
-      // Distinguish via the survey: if any ${name} in raw no longer resolves to
-      // a row, the empty facade is lossiness, not a user-clear.
-      const survey = row?.getSurvey?.()
-      const hasUnresolvable = survey != null && fieldRefs(raw).some((ref) => !survey.findRowByName?.(ref.slice(2, -1)))
-      if (!hasUnresolvable) {
+      // Use the builder's live presenter state to distinguish a genuine user-clear
+      // from a non-serializable condition (OC-28602 review). Empty presenters mean
+      // the panel is visually clear — return '' so no confirmation fires. Non-empty
+      // presenters mean conditions are visible but the facade can't serialize them
+      // (e.g. renamed/deleted field not yet cleaned up, invalid response value) —
+      // fall through and return raw so the overwrite confirmation fires.
+      const state = (detail as any)?.facade?.context?.state
+      if ((state?.presenters?.length ?? 0) === 0) {
         return ''
       }
-      // else: fall through — facade is lossy due to a deleted field, retain raw
     }
     return raw
   }

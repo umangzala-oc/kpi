@@ -13,35 +13,29 @@ function makeRow(options: { detail?: any; survey?: any } = {}) {
   return { row, detail, survey }
 }
 
-// Test survey: resolves a whitelist of field names, returns false for anything
-// else (matching model.surveyFragment findRowByName's sentinel value).
-function makeSurvey(existingFields: string[] = []) {
-  const existing = new Set(existingFields)
-  return {
-    trigger: jest.fn(),
-    findRowByName: jest.fn((name: string) => (existing.has(name) ? { name } : false)),
-  }
-}
-
 // A facade-backed RowDetail modeled faithfully: `get('value')` returns the RAW
 // stored attribute (updated by set), while `getValue()` returns the facade's
 // re-serialization of the current raw value — the lossy round-trip that drops
 // clauses it can't resolve and reformats the rest (round-7). `serialize` is the
-// per-test facade behavior. Pass `survey` to override the default stub (required
-// when the test exercises the deleted-field branch of readCurrentExpression).
-function makeFacadeRow(opts: { raw?: string; serialize?: (raw: string) => string; survey?: any } = {}) {
+// per-test facade behavior. Pass `presenters` to set the builder's live state
+// used by readCurrentExpression to distinguish a visual clear from non-serializable
+// conditions (OC-28602 review).
+function makeFacadeRow(opts: { raw?: string; serialize?: (raw: string) => string; presenters?: any[] } = {}) {
   const serialize = opts.serialize ?? ((raw: string) => raw)
   let value = opts.raw ?? ''
   const set = jest.fn((_key: string, v: string) => {
     value = v
   })
-  const detail = {
+  const facade = 'presenters' in opts ? { context: { state: { presenters: opts.presenters } } } : undefined
+  const detail: any = {
     set,
     get: jest.fn((key: string) => (key === 'value' ? value : undefined)),
     getValue: jest.fn(() => serialize(value)),
   }
-  const surveyOverride = 'survey' in opts ? { survey: opts.survey } : {}
-  const made = makeRow({ detail, ...surveyOverride })
+  if (facade != null) {
+    detail.facade = facade
+  }
+  const made = makeRow({ detail })
   return { ...made, rawValue: () => value }
 }
 
@@ -344,30 +338,36 @@ describe('readCurrentExpression (P1.3 AC2)', () => {
     chai.expect(readCurrentExpression(row, 'relevant')).to.equal("${A} = '1' and ${GONE} = '2'")
   })
 
-  it('returns empty for a facade attribute when raw is stale but the live facade is empty (OC-28602)', () => {
-    // After AI Apply, raw holds the last expression; the user then manually
-    // clears all conditions — facade serializes to '' but raw is not cleared.
-    // The referenced field still exists in the survey (user-clear, Case A):
-    // must return '' so Apply does not fire a false overwrite confirmation.
-    const survey = makeSurvey(['A'])
-    const { row } = makeFacadeRow({ raw: '${A} > 0', serialize: () => '', survey })
+  it('returns empty when the panel is visually clear after being manually cleared (OC-28602)', () => {
+    // After AI Apply, raw holds '${A} > 0'; user then manually clears all
+    // conditions. Presenters are empty (panel clear), facade serializes to ''.
+    // Must return '' so Apply does not fire a false overwrite confirmation.
+    const { row } = makeFacadeRow({ raw: '${A} > 0', serialize: () => '', presenters: [] })
     chai.expect(readCurrentExpression(row, 'constraint')).to.equal('')
   })
 
-  it('returns empty for relevant too when raw is stale and the facade is empty (OC-28602)', () => {
-    const survey = makeSurvey(['B'])
-    const { row } = makeFacadeRow({ raw: '${B} = 1', serialize: () => '', survey })
+  it('returns empty for relevant too when panel is visually clear and facade is empty (OC-28602)', () => {
+    const { row } = makeFacadeRow({ raw: '${B} = 1', serialize: () => '', presenters: [] })
     chai.expect(readCurrentExpression(row, 'relevant')).to.equal('')
   })
 
-  it('retains raw when getValue() is empty because a referenced field was deleted — no false confirmation skip (OC-28602)', () => {
-    // ${A} referenced in raw was deleted from the form; build_criterion_builder
-    // returns false for each criterion (findRowByName returns false), leaving an
-    // empty builder (getValue() = ''). Unlike the user-clear case, findRowByName
-    // confirms ${A} is gone — the empty facade is lossiness, not a user action.
-    // raw must be returned so the overwrite confirmation fires.
-    const survey = makeSurvey([]) // ${A} is no longer in the form
-    const { row } = makeFacadeRow({ raw: '${A} > 0', serialize: () => '', survey })
+  it('returns empty when the panel is visually clear after a referenced field is renamed (OC-28602 review Issue 1)', () => {
+    // q2 was renamed to q3; user cleared q1's condition panel. The builder
+    // removed the stale criterion, leaving presenters empty. Raw still holds
+    // ${q2}. findRowByName('q2') would return false (field gone by name) and
+    // fire a false overwrite confirmation. The presenter check returns '' —
+    // the panel is empty regardless of what raw contains.
+    const { row } = makeFacadeRow({ raw: '${q2} > 0', serialize: () => '', presenters: [] })
+    chai.expect(readCurrentExpression(row, 'constraint')).to.equal('')
+  })
+
+  it('retains raw when presenters are non-empty and facade serializes to empty — conditions visible but non-serializable (OC-28602 review Issue 2)', () => {
+    // The condition row is still shown in the builder (presenters non-empty) but
+    // the facade cannot serialize it — e.g. the response value fails validation
+    // (non-integer on an Integer field) or an unsupported comparison. getValue()
+    // returns '' as if the panel were clear. Raw must be returned so the
+    // overwrite confirmation fires instead of silently overwriting visible content.
+    const { row } = makeFacadeRow({ raw: '${A} > 0', serialize: () => '', presenters: [{}] })
     chai.expect(readCurrentExpression(row, 'relevant')).to.equal('${A} > 0')
   })
 
