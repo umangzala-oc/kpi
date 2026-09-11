@@ -10,6 +10,7 @@ $viewRowDetailSkipLogic = require './view.rowDetail.SkipLogic'
 $viewTemplates = require './view.templates'
 $rowTemplates = require './view.row.templates'
 generateButtonBridge = require '#/openclinica/generateButtonBridge'
+runSyntaxCheck = require('#/openclinica/syntaxCheckBridge').runSyntaxCheck
 
 module.exports = do ->
   viewRowDetail = {}
@@ -515,15 +516,14 @@ module.exports = do ->
       @fieldTab = "active"
       @$el.addClass("card__settings__fields--file")
       available_files = this.model.getSurvey().availableFiles || []
-      file = available_files[0]
+      tfile = t("Choices File")
       if available_files.length is 0
-        return viewRowDetail.Templates.textbox @cid, @model.key, label, 'text'
+        return viewRowDetail.Templates.textbox @cid, @model.key, tfile, 'text'
       else
         options = []
         for file in available_files
           options.push "<option>#{file.metadata.filename}</option>"
         uniq = "select-file-#{@cid}"
-        tfile = t("Choices File")
         return """
             <label for="#{uniq}">#{tfile}:</label>
             <div class="settings__input">
@@ -970,6 +970,9 @@ module.exports = do ->
       @$input.on 'blur', fireChange
       @$input.on 'change', fireChange
       @$input.on 'keyup', fireChange
+      # P1.11 AC1: on blur only, after the model write above, never on keystrokes.
+      @$input.on 'blur', =>
+        runSyntaxCheck(@model._parent, 'repeat_count', @$input.get(0))
       @$input.on 'keypress', (evt) =>
         if evt.key is 'Enter' or evt.keyCode is 13
           evt.preventDefault()

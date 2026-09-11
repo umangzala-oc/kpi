@@ -63,6 +63,7 @@ import { unmountAll } from '#/openclinica/generateButtonBridge'
 import { logicBuilderClient } from '#/openclinica/logicBuilderClient'
 import { buildFormContext, readItemName } from '#/openclinica/logicBuilderContext'
 import { GENERATE_REQUEST_KEY, columnToTab } from '#/openclinica/logicBuilderTabs'
+import { findSyntaxCheckAnchor, runSyntaxCheck } from '#/openclinica/syntaxCheckBridge'
 import { useBuilderInert } from '#/openclinica/useBuilderInert'
 import pageState from '#/pageState.store'
 import type { RouterProp } from '#/router/legacy'
@@ -232,6 +233,9 @@ export default function EditableForm(props: EditableFormProps) {
   const onSurveyChangeDebounced = debounce(onSurveyChange, 200)
 
   const [app, setApp] = useState<SurveyApp | undefined>(undefined)
+  // OC-28661: track the primary language at last editor init so we can detect
+  // when the user changes it via Manage Languages and force a re-init.
+  const prevPrimaryLangRef = useRef<string | null | undefined>(undefined)
 
   const assetUid = props.assetUid || ''
 
@@ -264,6 +268,14 @@ export default function EditableForm(props: EditableFormProps) {
 
   useEffect(() => {
     if (state.asset) {
+      const currentPrimaryLang = state.asset.content?.translations?.[0]
+      // OC-28661: when the primary language changes after the editor is already
+      // open (e.g. user clicks "Make primary" in Manage Languages), force a
+      // full re-init so the editor shows the new primary language's labels.
+      const primaryLangChanged =
+        prevPrimaryLangRef.current !== undefined && prevPrimaryLangRef.current !== currentPrimaryLang
+      prevPrimaryLangRef.current = currentPrimaryLang
+
       let settingsStyle: FormStyleName | undefined
       // OC fork: form id and version number live in the form settings alongside `style`.
       let settingsVersion: string | undefined
@@ -273,15 +285,19 @@ export default function EditableForm(props: EditableFormProps) {
         settingsVersion = state.asset.content.settings.version
         settingsFormId = state.asset.content.settings.form_id
       }
-      launchAppForSurveyContent(state.asset.content, {
-        name: state.asset.name,
-        settings__style: settingsStyle,
-        settings__version: settingsVersion,
-        settings__form_id: settingsFormId,
-        files: state.asset.files,
-        asset_type: state.asset.asset_type,
-        asset: state.asset,
-      })
+      launchAppForSurveyContent(
+        state.asset.content,
+        {
+          name: state.asset.name,
+          settings__style: settingsStyle,
+          settings__version: settingsVersion,
+          settings__form_id: settingsFormId,
+          files: state.asset.files,
+          asset_type: state.asset.asset_type,
+          asset: state.asset,
+        },
+        primaryLangChanged,
+      )
     }
   }, [state.asset])
 
@@ -375,6 +391,7 @@ export default function EditableForm(props: EditableFormProps) {
     closingViaApplyRef.current = false
     const request = state[GENERATE_REQUEST_KEY]
     const attribute = request?.attribute
+    const row = request?.row
     // Scope the focus lookup to the row's own settings drawer so a second open
     // drawer — or a group + child row sharing a class — can't be hit (round-5 #2).
     const root: ParentNode = request?.settingsRoot instanceof HTMLElement ? request.settingsRoot : document
@@ -387,6 +404,8 @@ export default function EditableForm(props: EditableFormProps) {
     window.setTimeout(() => {
       if (wasApply) {
         focusPanelInput(attribute, root) // P1.3 AC4
+        // P1.11 AC1: instant syntax check right after an applied expression.
+        runSyntaxCheck(row, attribute, findSyntaxCheckAnchor(attribute, root))
       } else {
         focusGenerateButton(attribute, root) // P1.1 AC6
       }
@@ -1003,7 +1022,7 @@ export default function EditableForm(props: EditableFormProps) {
       pageState.showModal({
         type: MODAL_TYPES.FORM_LANGUAGES,
         asset: state.asset,
-        hasUnsavedChanges: needsSave(),
+        hasUnsavedChanges: needsSave,
       })
     }
   }
@@ -1051,11 +1070,25 @@ export default function EditableForm(props: EditableFormProps) {
    * It builds `dkobo_xlform.view.SurveyApp` using asset data and then appends
    * it to `.form-wrap` node.
    */
-  function launchAppForSurveyContent(assetContent?: AssetContent, _state?: LaunchAppData) {
+  function launchAppForSurveyContent(assetContent?: AssetContent, _state?: LaunchAppData, force = false) {
     // If we already rendered the app in the formWrapRef container, there is no need to do it again. Without this check
     // we would end up adding copies of the app in HTML
     if (app !== undefined) {
-      return
+      if (!force) {
+        return
+      }
+      // OC-28661: primary language changed — tear down the existing app so the
+      // editor re-initializes with the new primary language's labels.
+      // unmountAll first so Generate-button React roots inside open drawers are
+      // cleanly unmounted before app.remove() yanks their DOM nodes.
+      unmountAll()
+      // app.remove() offs the namespaced $(document)/(window) handlers registered
+      // in SurveyFragmentApp.initialize before removing the DOM node.
+      app.remove()
+      // Reset app to undefined so a failed re-init (Survey.loadDict throws, or
+      // form-wrap not found) doesn't leave a stale reference that blocks retry.
+      setApp(undefined)
+      cleanupAppForSurveyContent()
     }
 
     const newState: Partial<EditableFormState> & Partial<LaunchAppData> = _state || {}

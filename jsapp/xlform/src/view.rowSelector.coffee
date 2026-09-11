@@ -81,13 +81,13 @@ module.exports = do ->
       @line.html $viewTemplates.$$render('xlfRowSelector.line', "")
       @line.find('.row__questiontypes__new-question-name').val(@question_name)
       $menu = @line.find(".row__questiontypes__list")
-      availableFiles = @options.survey.availableFiles || []
+      # OC-28120: OC intentionally dropped upstream kobotoolbox/kpi#4403's
+      # gate hiding these types when no files are attached. Don't reintroduce
+      # it when porting a future upstream Form Designer bump.
       econsentIcon = null
       for mrow in $icons.grouped()
         menurow = $("<div>", class: "questiontypelist__row").appendTo $menu
         for mitem, i in mrow when mitem
-          if availableFiles.length is 0 and ['select_one_from_file', 'select_multiple_from_file'].includes(mitem.get('id'))
-            continue
           if mitem.get('id') is 'econsent_signature'
             econsentIcon = mitem
             continue
