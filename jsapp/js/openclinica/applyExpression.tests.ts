@@ -323,12 +323,27 @@ describe('readCurrentExpression (P1.3 AC2)', () => {
   })
 
   it('prefers RAW for facade attributes when non-empty — never the lossy getValue() serialization', () => {
-    const { row, detail } = makeFacadeRow({
+    // getValue() is now consulted for the emptiness check (OC-28602) but its
+    // return value never replaces raw when the facade is non-empty.
+    const { row } = makeFacadeRow({
       raw: "${A} = '1' and ${GONE} = '2'",
       serialize: () => "${A} = '1'",
     })
     chai.expect(readCurrentExpression(row, 'relevant')).to.equal("${A} = '1' and ${GONE} = '2'")
-    chai.expect(detail.getValue.mock.calls.length).to.equal(0)
+  })
+
+  it('returns empty for a facade attribute when raw is stale but the live facade is empty (OC-28602)', () => {
+    // After AI Apply, raw holds the last expression; after the user manually
+    // clears all conditions the facade serializes to '' but raw is not cleared.
+    // readCurrentExpression must return '' so Apply does not fire a false
+    // overwrite confirmation on an empty panel.
+    const { row } = makeFacadeRow({ raw: '${A} > 0', serialize: () => '' })
+    chai.expect(readCurrentExpression(row, 'constraint')).to.equal('')
+  })
+
+  it('returns empty for relevant too when raw is stale and the facade is empty (OC-28602)', () => {
+    const { row } = makeFacadeRow({ raw: '${B} = 1', serialize: () => '' })
+    chai.expect(readCurrentExpression(row, 'relevant')).to.equal('')
   })
 
   it('returns empty string when the row has no RowDetail for the attribute', () => {

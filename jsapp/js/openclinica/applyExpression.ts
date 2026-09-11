@@ -153,6 +153,15 @@ export function readCurrentExpression(row: any, attribute: string): string {
     return ''
   }
   if (raw.trim() !== '') {
+    // For facade attributes, raw is the SEED / last-applied value and the
+    // panel never writes back to it when the user clears conditions. Consult
+    // the live serialization for the emptiness check: if getValue() is empty
+    // the panel is blank and the stale raw must not trigger a false overwrite
+    // confirmation (OC-28602). raw still wins as the return value when both
+    // sides are non-empty, so the lossy reserialization is never surfaced.
+    if (FACADE_ATTRIBUTES.has(attribute) && String(detail?.getValue?.() ?? '').trim() === '') {
+      return ''
+    }
     return raw
   }
   // relevant/constraint: the raw value is only the facade's SEED — conditions
