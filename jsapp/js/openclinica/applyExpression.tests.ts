@@ -13,12 +13,23 @@ function makeRow(options: { detail?: any; survey?: any } = {}) {
   return { row, detail, survey }
 }
 
+// Test survey: resolves a whitelist of field names, returns false for anything
+// else (matching model.surveyFragment findRowByName's sentinel value).
+function makeSurvey(existingFields: string[] = []) {
+  const existing = new Set(existingFields)
+  return {
+    trigger: jest.fn(),
+    findRowByName: jest.fn((name: string) => (existing.has(name) ? { name } : false)),
+  }
+}
+
 // A facade-backed RowDetail modeled faithfully: `get('value')` returns the RAW
 // stored attribute (updated by set), while `getValue()` returns the facade's
 // re-serialization of the current raw value — the lossy round-trip that drops
 // clauses it can't resolve and reformats the rest (round-7). `serialize` is the
-// per-test facade behavior.
-function makeFacadeRow(opts: { raw?: string; serialize?: (raw: string) => string } = {}) {
+// per-test facade behavior. Pass `survey` to override the default stub (required
+// when the test exercises the deleted-field branch of readCurrentExpression).
+function makeFacadeRow(opts: { raw?: string; serialize?: (raw: string) => string; survey?: any } = {}) {
   const serialize = opts.serialize ?? ((raw: string) => raw)
   let value = opts.raw ?? ''
   const set = jest.fn((_key: string, v: string) => {
@@ -29,7 +40,8 @@ function makeFacadeRow(opts: { raw?: string; serialize?: (raw: string) => string
     get: jest.fn((key: string) => (key === 'value' ? value : undefined)),
     getValue: jest.fn(() => serialize(value)),
   }
-  const made = makeRow({ detail })
+  const surveyOverride = 'survey' in opts ? { survey: opts.survey } : {}
+  const made = makeRow({ detail, ...surveyOverride })
   return { ...made, rawValue: () => value }
 }
 
@@ -333,17 +345,30 @@ describe('readCurrentExpression (P1.3 AC2)', () => {
   })
 
   it('returns empty for a facade attribute when raw is stale but the live facade is empty (OC-28602)', () => {
-    // After AI Apply, raw holds the last expression; after the user manually
-    // clears all conditions the facade serializes to '' but raw is not cleared.
-    // readCurrentExpression must return '' so Apply does not fire a false
-    // overwrite confirmation on an empty panel.
-    const { row } = makeFacadeRow({ raw: '${A} > 0', serialize: () => '' })
+    // After AI Apply, raw holds the last expression; the user then manually
+    // clears all conditions — facade serializes to '' but raw is not cleared.
+    // The referenced field still exists in the survey (user-clear, Case A):
+    // must return '' so Apply does not fire a false overwrite confirmation.
+    const survey = makeSurvey(['A'])
+    const { row } = makeFacadeRow({ raw: '${A} > 0', serialize: () => '', survey })
     chai.expect(readCurrentExpression(row, 'constraint')).to.equal('')
   })
 
   it('returns empty for relevant too when raw is stale and the facade is empty (OC-28602)', () => {
-    const { row } = makeFacadeRow({ raw: '${B} = 1', serialize: () => '' })
+    const survey = makeSurvey(['B'])
+    const { row } = makeFacadeRow({ raw: '${B} = 1', serialize: () => '', survey })
     chai.expect(readCurrentExpression(row, 'relevant')).to.equal('')
+  })
+
+  it('retains raw when getValue() is empty because a referenced field was deleted — no false confirmation skip (OC-28602)', () => {
+    // ${A} referenced in raw was deleted from the form; build_criterion_builder
+    // returns false for each criterion (findRowByName returns false), leaving an
+    // empty builder (getValue() = ''). Unlike the user-clear case, findRowByName
+    // confirms ${A} is gone — the empty facade is lossiness, not a user action.
+    // raw must be returned so the overwrite confirmation fires.
+    const survey = makeSurvey([]) // ${A} is no longer in the form
+    const { row } = makeFacadeRow({ raw: '${A} > 0', serialize: () => '', survey })
+    chai.expect(readCurrentExpression(row, 'relevant')).to.equal('${A} > 0')
   })
 
   it('returns empty string when the row has no RowDetail for the attribute', () => {

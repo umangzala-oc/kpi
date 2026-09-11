@@ -153,14 +153,20 @@ export function readCurrentExpression(row: any, attribute: string): string {
     return ''
   }
   if (raw.trim() !== '') {
-    // For facade attributes, raw is the SEED / last-applied value and the
-    // panel never writes back to it when the user clears conditions. Consult
-    // the live serialization for the emptiness check: if getValue() is empty
-    // the panel is blank and the stale raw must not trigger a false overwrite
-    // confirmation (OC-28602). raw still wins as the return value when both
-    // sides are non-empty, so the lossy reserialization is never surfaced.
     if (FACADE_ATTRIBUTES.has(attribute) && String(detail?.getValue?.() ?? '').trim() === '') {
-      return ''
+      // The facade serializes to '' for two distinct reasons: (A) the user
+      // explicitly cleared all conditions — must return '' (no confirmation);
+      // (B) a field the expression references was deleted from the form and
+      // build_criterion_builder filtered every clause out, leaving an empty
+      // builder — must retain raw so the overwrite confirmation fires (OC-28602).
+      // Distinguish via the survey: if any ${name} in raw no longer resolves to
+      // a row, the empty facade is lossiness, not a user-clear.
+      const survey = row?.getSurvey?.()
+      const hasUnresolvable = survey != null && fieldRefs(raw).some((ref) => !survey.findRowByName?.(ref.slice(2, -1)))
+      if (!hasUnresolvable) {
+        return ''
+      }
+      // else: fall through — facade is lossy due to a deleted field, retain raw
     }
     return raw
   }
